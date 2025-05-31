@@ -21,7 +21,7 @@ if database_url:
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-    logger.info(f"✅ Usando PostgreSQL: {database_url[:50]}...")
+    logger.info(f"✅ Usando PostgreSQL")
 else:
     # Para desarrollo local con SQLite
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///chocolates_byb.db'
@@ -33,12 +33,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 300,
 }
 
-try:
-    db = SQLAlchemy(app)
-    logger.info("✅ SQLAlchemy inicializado correctamente")
-except Exception as e:
-    logger.error(f"❌ Error inicializando SQLAlchemy: {e}")
-    raise
+db = SQLAlchemy(app)
 
 # Modelos de la base de datos
 class Producto(db.Model):
@@ -55,7 +50,7 @@ class Producto(db.Model):
 class Trabajador(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nombre = db.Column(db.String(100), nullable=False)
-    tipo = db.Column(db.String(20), nullable=False)  # vendedor, mensajero, elaborador, inversor
+    tipo = db.Column(db.String(20), nullable=False)
     activo = db.Column(db.Boolean, default=True)
     telefono = db.Column(db.String(20))
     total_ganado = db.Column(db.Integer, default=0)
@@ -98,7 +93,7 @@ class ItemPedido(db.Model):
 class ComisionPedido(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     pedido_id = db.Column(db.Integer, db.ForeignKey('pedido.id'), nullable=False)
-    trabajador_id = db.Column(db.Integer, db.ForeignKey('trabajador.id'), nullable=False)
+    trabajador_id = db.Column(db.Integer, db.ForeignKey('trabajador.id'))
     tipo_comision = db.Column(db.String(30), nullable=False)
     monto = db.Column(db.Integer, nullable=False)
     
@@ -235,15 +230,15 @@ def generar_reporte_pedido(pedido):
 """
     
     for comision in comisiones:
-        if comision.tipo_comision == 'VENDEDOR':
+        if comision.tipo_comision == 'VENDEDOR' and comision.trabajador:
             mensaje += f"👤 VENDEDOR ({comision.trabajador.nombre}): {comision.monto} CUP\n"
-        elif comision.tipo_comision == 'MENSAJERO':
+        elif comision.tipo_comision == 'MENSAJERO' and comision.trabajador:
             mensaje += f"🛵 MENSAJERO ({comision.trabajador.nombre}): {comision.monto} CUP\n"
-        elif comision.tipo_comision == 'ELABORADOR':
+        elif comision.tipo_comision == 'ELABORADOR' and comision.trabajador:
             mensaje += f"👨‍🍳 ELABORADOR ({comision.trabajador.nombre}): {comision.monto} CUP\n"
         elif comision.tipo_comision == 'GANANCIA_NEGOCIO':
             mensaje += f"🏢 GANANCIAS NEGOCIO: {comision.monto} CUP\n"
-        elif comision.tipo_comision == 'GANANCIA_INVERSOR':
+        elif comision.tipo_comision == 'GANANCIA_INVERSOR' and comision.trabajador:
             mensaje += f"💼 GANANCIA INVERSOR ({comision.trabajador.nombre}): {comision.monto} CUP\n"
         elif comision.tipo_comision == 'INVERSION':
             mensaje += f"🏭 INVERSIÓN: {comision.monto} CUP\n"
@@ -278,7 +273,7 @@ def generar_reporte_diario():
     for pedido in pedidos_hoy:
         comisiones = ComisionPedido.query.filter_by(pedido_id=pedido.id).all()
         for comision in comisiones:
-            if comision.trabajador_id:
+            if comision.trabajador_id and comision.trabajador:
                 nombre = comision.trabajador.nombre
                 if nombre not in ganancias_trabajadores:
                     ganancias_trabajadores[nombre] = 0
@@ -316,7 +311,7 @@ def index():
                              trabajadores_activos=trabajadores_activos)
     except Exception as e:
         # En caso de error, mostrar dashboard básico
-        print(f"Error en dashboard: {e}")
+        logger.error(f"Error en dashboard: {e}")
         return render_template('index.html',
                              pedidos_hoy=0,
                              total_hoy=0,
@@ -394,7 +389,7 @@ def crear_pedido():
                     pedido_id=pedido.id,
                     producto_id=int(producto_id),
                     cantidad=cantidad,
-                    precio_unitario=precio_unitario // cantidad
+                    precio_unitario=precio_unitario // cantidad if cantidad > 0 else 0
                 )
                 db.session.add(item)
                 subtotal += precio_unitario
@@ -530,45 +525,30 @@ def health_check():
         db.session.execute('SELECT 1')
         return {'status': 'ok', 'app': 'Chocolates ByB', 'database': 'connected'}, 200
     except Exception as e:
-        logger.error(f"❌ Healthcheck falló: {e}")
-        return {'status': 'error', 'app': 'Chocolates ByB', 'error': str(e)}, 500
+        logger.error(f"Healthcheck failed: {e}")
+        return {'status': 'error', 'message': str(e)}, 500
 
 # Test simple sin base de datos
 @app.route('/ping')
 def ping():
     return {'status': 'pong', 'timestamp': datetime.now().isoformat()}, 200
 
-# Manejo de errores global
-@app.errorhandler(404)
-def not_found(error):
-    return {'error': 'Not found'}, 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    logger.error(f"Error 500: {error}")
-    return {'error': 'Internal server error'}, 500
-
-@app.errorhandler(Exception)
-def handle_exception(e):
-    logger.error(f"Excepción no manejada: {e}")
-    return {'error': 'Application error', 'message': str(e)}, 500
-
 # Inicializar base de datos
 def init_db():
     """Inicializa la base de datos con datos de ejemplo"""
     try:
-        logger.info("🔧 Inicializando base de datos...")
+        logger.info("Initializing database...")
         
         # Crear todas las tablas
         db.create_all()
-        logger.info("✅ Tablas creadas correctamente")
+        logger.info("Tables created successfully")
         
         # Verificar si ya hay datos
         if Trabajador.query.first():
-            logger.info("ℹ️  Base de datos ya tiene datos")
+            logger.info("Database already has data")
             return
         
-        logger.info("📝 Creando datos de ejemplo...")
+        logger.info("Creating sample data...")
         
         # Trabajadores de ejemplo
         trabajadores = [
@@ -608,37 +588,27 @@ def init_db():
         db.session.add(config)
         
         db.session.commit()
-        logger.info("✅ Datos de ejemplo creados correctamente")
+        logger.info("Sample data created successfully")
         
     except Exception as e:
-        logger.error(f"❌ Error inicializando base de datos: {e}")
+        logger.error(f"Error initializing database: {e}")
         db.session.rollback()
-        # No lanzar excepción, permitir que la app continúe
-        
-# Inicializar cuando se carga el módulo
-def setup_app():
-    """Configura la aplicación de manera segura"""
+
+# Función para crear tablas al iniciar
+@app.before_first_request
+def create_tables():
+    """Crea las tablas antes de la primera petición"""
     try:
         with app.app_context():
             init_db()
     except Exception as e:
-        logger.error(f"❌ Error en setup_app: {e}")
-
-# Solo inicializar si no estamos importando
-if __name__ != '__main__':
-    setup_app()
+        logger.error(f"Error in create_tables: {e}")
 
 if __name__ == '__main__':
-    logger.info("🚀 Iniciando aplicación...")
-    
-    # Configurar la aplicación
-    with app.app_context():
-        init_db()
-    
     port = int(os.environ.get('PORT', 5000))
     debug_mode = os.environ.get('FLASK_ENV') == 'development'
     
-    logger.info(f"🌐 Servidor iniciando en puerto {port}")
-    logger.info(f"🔧 Modo debug: {debug_mode}")
+    logger.info(f"Starting server on port {port}")
+    logger.info(f"Debug mode: {debug_mode}")
     
     app.run(host='0.0.0.0', port=port, debug=debug_mode)
