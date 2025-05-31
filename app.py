@@ -1,0 +1,375 @@
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, date
+import os
+from urllib.parse import quote_plus
+import requests
+import json
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+
+# Configuración de base de datos
+if os.environ.get('DATABASE_URL'):
+    # Para Railway con PostgreSQL
+    database_url = os.environ.get('DATABASE_URL')
+    if database_url.startswith('postgres://'):
+        database_url = database_url.replace('postgres://', 'postgresql://', 1)
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+else:
+    # Para desarrollo local con SQLite
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///chocolates_byb.db'
+
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+# Modelos de la base de datos
+class Producto(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False)
+    tipo = db.Column(db.String(50), nullable=False)
+    tamaño = db.Column(db.String(20))
+    peso = db.Column(db.Integer)
+    precio_venta = db.Column(db.Integer, nullable=False)
+    costo_produccion = db.Column(db.Integer, nullable=False)
+    stock = db.Column(db.Integer, default=0)
+    activo = db.Column(db.Boolean, default=True)
+
+class Trabajador(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    nombre = db.Column(db.String(100), nullable=False)
+    tipo = db.Column(db.String(20), nullable=False)  # vendedor, mensajero, elaborador, inversor
+    activo = db.Column(db.Boolean, default=True)
+    telefono = db.Column(db.String(20))
+    total_ganado = db.Column(db.Integer, default=0)
+
+class Pedido(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    numero_orden = db.Column(db.Integer, unique=True, nullable=False)
+    fecha_pedido = db.Column(db.Date, nullable=False, default=date.today)
+    fecha_entrega = db.Column(db.Date, nullable=False)
+    horario_entrega = db.Column(db.String(20))
+    cliente_nombre = db.Column(db.String(100), nullable=False)
+    cliente_telefono = db.Column(db.String(20))
+    cliente_direccion = db.Column(db.Text)
+    vendedor_id = db.Column(db.Integer, db.ForeignKey('trabajador.id'))
+    mensajero_id = db.Column(db.Integer, db.ForeignKey('trabajador.id'))
+    elaborador_id = db.Column(db.Integer, db.ForeignKey('trabajador.id'))
+    estado = db.Column(db.String(20), default='PENDIENTE')
+    modificado = db.Column(db.Boolean, default=False)
+    subtotal = db.Column(db.Integer, nullable=False)
+    mensajeria = db.Column(db.Integer, default=0)
+    total = db.Column(db.Integer, nullable=False)
+    observaciones = db.Column(db.Text)
+    
+    vendedor = db.relationship('Trabajador', foreign_keys=[vendedor_id])
+    mensajero = db.relationship('Trabajador', foreign_keys=[mensajero_id])
+    elaborador = db.relationship('Trabajador', foreign_keys=[elaborador_id])
+
+class ItemPedido(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    pedido_id = db.Column(db.Integer, db.ForeignKey('pedido.id'), nullable=False)
+    producto_id = db.Column(db.Integer, db.ForeignKey('producto.id'), nullable=False)
+    cantidad = db.Column(db.Integer, nullable=False)
+    precio_unitario = db.Column(db.Integer, nullable=False)
+    incluye_bolsa_regalo = db.Column(db.Boolean, default=False)
+    precio_bolsa = db.Column(db.Integer, default=0)
+    
+    pedido = db.relationship('Pedido', backref='items')
+    producto = db.relationship('Producto')
+
+class ComisionPedido(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    pedido_id = db.Column(db.Integer, db.ForeignKey('pedido.id'), nullable=False)
+    trabajador_id = db.Column(db.Integer, db.ForeignKey('trabajador.id'), nullable=False)
+    tipo_comision = db.Column(db.String(30), nullable=False)
+    monto = db.Column(db.Integer, nullable=False)
+    
+    pedido = db.relationship('Pedido')
+    trabajador = db.relationship('Trabajador')
+
+class ConfiguracionComisiones(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    comision_vendedor = db.Column(db.Integer, default=500)
+    ganancia_negocio = db.Column(db.Integer, default=200)
+    ganancia_inversores = db.Column(db.Integer, default=500)
+    precio_bolsa_regalo = db.Column(db.Integer, default=200)
+
+# Funciones auxiliares
+def calcular_comisiones_pedido(pedido):
+    """Calcula las comisiones de un pedido completado"""
+    config = ConfiguracionComisiones.query.first()
+    if not config:
+        config = ConfiguracionComisiones()
+        db.session.add(config)
+        db.session.commit()
+    
+    # Limpiar comisiones existentes
+    ComisionPedido.query.filter_by(pedido_id=pedido.id).delete()
+    
+    # Calcular inversión total (costos de producción)
+    inversion_total = 0
+    for item in pedido.items:
+        inversion_total += item.producto.costo_produccion * item.cantidad
+    
+    comisiones = []
+    
+    # Vendedor
+    if pedido.vendedor_id:
+        comision = ComisionPedido(
+            pedido_id=pedido.id,
+            trabajador_id=pedido.vendedor_id,
+            tipo_comision='VENDEDOR',
+            monto=config.comision_vendedor
+        )
+        comisiones.append(comision)
+    
+    # Mensajero
+    if pedido.mensajero_id and pedido.mensajeria > 0:
+        comision = ComisionPedido(
+            pedido_id=pedido.id,
+            trabajador_id=pedido.mensajero_id,
+            tipo_comision='MENSAJERO',
+            monto=pedido.mensajeria
+        )
+        comisiones.append(comision)
+    
+    # Elaborador
+    if pedido.elaborador_id:
+        comision_elaborador = 0
+        for item in pedido.items:
+            # Comisión por producto elaborado (ejemplo: 100 CUP por producto)
+            comision_elaborador += 100 * item.cantidad
+        
+        comision = ComisionPedido(
+            pedido_id=pedido.id,
+            trabajador_id=pedido.elaborador_id,
+            tipo_comision='ELABORADOR',
+            monto=comision_elaborador
+        )
+        comisiones.append(comision)
+    
+    # Ganancias del negocio
+    comision = ComisionPedido(
+        pedido_id=pedido.id,
+        trabajador_id=None,
+        tipo_comision='GANANCIA_NEGOCIO',
+        monto=config.ganancia_negocio
+    )
+    comisiones.append(comision)
+    
+    # Ganancias de inversores (dividido equitativamente)
+    inversores = Trabajador.query.filter_by(tipo='inversor', activo=True).all()
+    if inversores:
+        ganancia_por_inversor = config.ganancia_inversores // len(inversores)
+        for inversor in inversores:
+            comision = ComisionPedido(
+                pedido_id=pedido.id,
+                trabajador_id=inversor.id,
+                tipo_comision='GANANCIA_INVERSOR',
+                monto=ganancia_por_inversor
+            )
+            comisiones.append(comision)
+    
+    # Inversión
+    comision = ComisionPedido(
+        pedido_id=pedido.id,
+        trabajador_id=None,
+        tipo_comision='INVERSION',
+        monto=inversion_total
+    )
+    comisiones.append(comision)
+    
+    # Guardar todas las comisiones
+    for comision in comisiones:
+        db.session.add(comision)
+    
+    db.session.commit()
+    return comisiones
+
+def enviar_whatsapp(numero, mensaje):
+    """Envía mensaje por WhatsApp usando CallMeBot API"""
+    api_key = os.environ.get('CALLMEBOT_API_KEY')
+    if not api_key:
+        print("API Key de CallMeBot no configurada")
+        return False
+    
+    try:
+        url = f"https://api.callmebot.com/whatsapp.php"
+        params = {
+            'phone': numero,
+            'text': mensaje,
+            'apikey': api_key
+        }
+        response = requests.get(url, params=params)
+        return response.status_code == 200
+    except Exception as e:
+        print(f"Error enviando WhatsApp: {e}")
+        return False
+
+def generar_reporte_pedido(pedido):
+    """Genera el reporte individual de un pedido"""
+    comisiones = ComisionPedido.query.filter_by(pedido_id=pedido.id).all()
+    
+    mensaje = f"""🔸 *[{pedido.numero_orden}] Reporte Financiero* 🏷️
+💰 Total facturado: {pedido.total} CUP
+
+📊 DISTRIBUCIÓN:
+"""
+    
+    for comision in comisiones:
+        if comision.tipo_comision == 'VENDEDOR':
+            mensaje += f"👤 VENDEDOR ({comision.trabajador.nombre}): {comision.monto} CUP\n"
+        elif comision.tipo_comision == 'MENSAJERO':
+            mensaje += f"🛵 MENSAJERO ({comision.trabajador.nombre}): {comision.monto} CUP\n"
+        elif comision.tipo_comision == 'ELABORADOR':
+            mensaje += f"👨‍🍳 ELABORADOR ({comision.trabajador.nombre}): {comision.monto} CUP\n"
+        elif comision.tipo_comision == 'GANANCIA_NEGOCIO':
+            mensaje += f"🏢 GANANCIAS NEGOCIO: {comision.monto} CUP\n"
+        elif comision.tipo_comision == 'GANANCIA_INVERSOR':
+            mensaje += f"💼 GANANCIA INVERSOR ({comision.trabajador.nombre}): {comision.monto} CUP\n"
+        elif comision.tipo_comision == 'INVERSION':
+            mensaje += f"🏭 INVERSIÓN: {comision.monto} CUP\n"
+    
+    return mensaje
+
+def generar_reporte_diario():
+    """Genera el reporte diario consolidado"""
+    pedidos_hoy = Pedido.query.filter(
+        Pedido.fecha_pedido == date.today(),
+        Pedido.estado == 'COMPLETADO'
+    ).all()
+    
+    if not pedidos_hoy:
+        return "📊 No hay pedidos completados hoy"
+    
+    total_facturado = sum(p.total for p in pedidos_hoy)
+    
+    mensaje = f"""📊 *REPORTE DIARIO - {date.today().strftime('%d/%m/%Y')}*
+
+🔢 Pedidos completados: {len(pedidos_hoy)}
+💰 Total facturado: {total_facturado} CUP
+
+📋 PEDIDOS:
+"""
+    
+    for pedido in pedidos_hoy:
+        mensaje += f"• [{pedido.numero_orden}] {pedido.cliente_nombre}: {pedido.total} CUP\n"
+    
+    # Consolidado de ganancias por trabajador
+    ganancias_trabajadores = {}
+    for pedido in pedidos_hoy:
+        comisiones = ComisionPedido.query.filter_by(pedido_id=pedido.id).all()
+        for comision in comisiones:
+            if comision.trabajador_id:
+                nombre = comision.trabajador.nombre
+                if nombre not in ganancias_trabajadores:
+                    ganancias_trabajadores[nombre] = 0
+                ganancias_trabajadores[nombre] += comision.monto
+    
+    if ganancias_trabajadores:
+        mensaje += "\n👥 GANANCIAS POR TRABAJADOR:\n"
+        for nombre, ganancia in ganancias_trabajadores.items():
+            mensaje += f"• {nombre}: {ganancia} CUP\n"
+    
+    return mensaje
+
+# Rutas
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/pedidos')
+def pedidos():
+    pedidos = Pedido.query.order_by(Pedido.numero_orden.desc()).all()
+    return render_template('pedidos.html', pedidos=pedidos)
+
+@app.route('/completar_pedido/<int:pedido_id>')
+def completar_pedido(pedido_id):
+    pedido = Pedido.query.get_or_404(pedido_id)
+    if pedido.estado != 'COMPLETADO':
+        pedido.estado = 'COMPLETADO'
+        db.session.commit()
+        
+        # Calcular comisiones
+        calcular_comisiones_pedido(pedido)
+        
+        # Enviar reporte por WhatsApp
+        admin_phone = os.environ.get('ADMIN_PHONE')
+        if admin_phone:
+            mensaje = generar_reporte_pedido(pedido)
+            enviar_whatsapp(admin_phone, mensaje)
+        
+        flash('Pedido completado y reporte enviado por WhatsApp', 'success')
+    
+    return redirect(url_for('pedidos'))
+
+@app.route('/reporte_diario')
+def reporte_diario():
+    mensaje = generar_reporte_diario()
+    
+    # Enviar por WhatsApp
+    admin_phone = os.environ.get('ADMIN_PHONE')
+    if admin_phone:
+        enviar_whatsapp(admin_phone, mensaje)
+        flash('Reporte diario enviado por WhatsApp', 'success')
+    else:
+        flash('Número de administrador no configurado', 'warning')
+    
+    return redirect(url_for('index'))
+
+@app.route('/trabajadores')
+def trabajadores():
+    trabajadores = Trabajador.query.filter_by(activo=True).all()
+    return render_template('trabajadores.html', trabajadores=trabajadores)
+
+@app.route('/productos')
+def productos():
+    productos = Producto.query.filter_by(activo=True).all()
+    return render_template('productos.html', productos=productos)
+
+@app.route('/configuracion')
+def configuracion():
+    config = ConfiguracionComisiones.query.first()
+    if not config:
+        config = ConfiguracionComisiones()
+        db.session.add(config)
+        db.session.commit()
+    return render_template('configuracion.html', config=config)
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+        
+        # Datos iniciales
+        if not Trabajador.query.first():
+            # Trabajadores de ejemplo
+            vendedor = Trabajador(nombre='Vendedor Principal', tipo='vendedor')
+            mensajero = Trabajador(nombre='Mensajero 1', tipo='mensajero')
+            elaborador = Trabajador(nombre='Elaborador Principal', tipo='elaborador')
+            inversor1 = Trabajador(nombre='Inversor 1', tipo='inversor')
+            inversor2 = Trabajador(nombre='Inversor 2', tipo='inversor')
+            
+            db.session.add_all([vendedor, mensajero, elaborador, inversor1, inversor2])
+            
+            # Productos de ejemplo
+            producto1 = Producto(
+                nombre='Chocolate Grande',
+                tipo='chocolate',
+                tamaño='grande',
+                precio_venta=1900,
+                costo_produccion=800
+            )
+            producto2 = Producto(
+                nombre='Chocolate Mediano',
+                tipo='chocolate',
+                tamaño='mediano',
+                precio_venta=1200,
+                costo_produccion=500
+            )
+            
+            db.session.add_all([producto1, producto2])
+            db.session.commit()
+    
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_ENV') == 'development')
