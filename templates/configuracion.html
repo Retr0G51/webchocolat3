@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h4><i class="fas fa-cog"></i> Configuración del Sistema</h4>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('actualizar_configuracion') }}">
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Comisión Vendedor (CUP)</label>
+                        <input type="number" class="form-control" name="comision_vendedor" 
+                               value="{{ config.comision_vendedor }}" required>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Precio Bolsa Regalo (CUP)</label>
+                        <input type="number" class="form-control" name="precio_bolsa_regalo" 
+                               value="{{ config.precio_bolsa_regalo }}" required>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Ganancia Negocio (CUP)</label>
+                        <input type="number" class="form-control" name="ganancia_negocio" 
+                               value="{{ config.ganancia_negocio }}" required>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Ganancia Inversores (CUP)</label>
+                        <input type="number" class="form-control" name="ganancia_inversores" 
+                               value="{{ config.ganancia_inversores }}" required>
+                    </div>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-chocolate">
+                <i class="fas fa-save"></i> Guardar Configuración
+            </button>
+        </form>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h5><i class="fab fa-whatsapp"></i> Configuración WhatsApp</h5>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info">
+            <strong>Variables de entorno requeridas:</strong>
+            <ul class="mb-0">
+                <li><code>CALLMEBOT_API_KEY</code>: API Key de CallMeBot</li>
+                <li><code>ADMIN_PHONE</code>: Número del administrador (formato internacional)</li>
+            </ul>
+        </div>
+        <p>Para configurar WhatsApp:</p>
+        <ol>
+            <li>Envía un mensaje a +34 621 21 41 87 con el texto: <code>I allow callmebot to send me messages</code></li>
+            <li>Recibirás tu API Key</li>
+            <li>Configúrala en Railway como variable de entorno</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}
