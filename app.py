@@ -277,25 +277,34 @@ def generar_reporte_diario():
 # Rutas
 @app.route('/')
 def index():
-    # Obtener estadísticas para el dashboard
-    pedidos_hoy = Pedido.query.filter(
-        Pedido.fecha_pedido == date.today(),
-        Pedido.estado == 'COMPLETADO'
-    ).count()
-    
-    total_hoy = sum(p.total for p in Pedido.query.filter(
-        Pedido.fecha_pedido == date.today(),
-        Pedido.estado == 'COMPLETADO'
-    ).all()) or 0
-    
-    pedidos_pendientes = Pedido.query.filter_by(estado='PENDIENTE').count()
-    trabajadores_activos = Trabajador.query.filter_by(activo=True).count()
-    
-    return render_template('index.html',
-                         pedidos_hoy=pedidos_hoy,
-                         total_hoy=total_hoy,
-                         pedidos_pendientes=pedidos_pendientes,
-                         trabajadores_activos=trabajadores_activos)
+    try:
+        # Obtener estadísticas para el dashboard
+        pedidos_hoy = Pedido.query.filter(
+            Pedido.fecha_pedido == date.today(),
+            Pedido.estado == 'COMPLETADO'
+        ).count()
+        
+        total_hoy = sum(p.total for p in Pedido.query.filter(
+            Pedido.fecha_pedido == date.today(),
+            Pedido.estado == 'COMPLETADO'
+        ).all()) or 0
+        
+        pedidos_pendientes = Pedido.query.filter_by(estado='PENDIENTE').count()
+        trabajadores_activos = Trabajador.query.filter_by(activo=True).count()
+        
+        return render_template('index.html',
+                             pedidos_hoy=pedidos_hoy,
+                             total_hoy=total_hoy,
+                             pedidos_pendientes=pedidos_pendientes,
+                             trabajadores_activos=trabajadores_activos)
+    except Exception as e:
+        # En caso de error, mostrar dashboard básico
+        print(f"Error en dashboard: {e}")
+        return render_template('index.html',
+                             pedidos_hoy=0,
+                             total_hoy=0,
+                             pedidos_pendientes=0,
+                             trabajadores_activos=0)
 
 @app.route('/api/estadisticas')
 def api_estadisticas():
@@ -496,39 +505,58 @@ def actualizar_configuracion():
     
     return redirect(url_for('configuracion'))
 
-if __name__ == '__main__':
-    with app.app_context():
+# Ruta de healthcheck para Railway
+@app.route('/health')
+def health_check():
+    return {'status': 'ok', 'app': 'Chocolates ByB'}, 200
+
+# Inicializar base de datos
+def init_db():
+    """Inicializa la base de datos con datos de ejemplo"""
+    try:
         db.create_all()
         
-        # Datos iniciales
-        if not Trabajador.query.first():
-            # Trabajadores de ejemplo
-            vendedor = Trabajador(nombre='Vendedor Principal', tipo='vendedor')
-            mensajero = Trabajador(nombre='Mensajero 1', tipo='mensajero')
-            elaborador = Trabajador(nombre='Elaborador Principal', tipo='elaborador')
-            inversor1 = Trabajador(nombre='Inversor 1', tipo='inversor')
-            inversor2 = Trabajador(nombre='Inversor 2', tipo='inversor')
-            
-            db.session.add_all([vendedor, mensajero, elaborador, inversor1, inversor2])
-            
-            # Productos de ejemplo
-            producto1 = Producto(
-                nombre='Chocolate Grande',
-                tipo='chocolate',
-                tamaño='grande',
-                precio_venta=1900,
-                costo_produccion=800
-            )
-            producto2 = Producto(
-                nombre='Chocolate Mediano',
-                tipo='chocolate',
-                tamaño='mediano',
-                precio_venta=1200,
-                costo_produccion=500
-            )
-            
-            db.session.add_all([producto1, producto2])
-            db.session.commit()
-    
+        # Verificar si ya hay datos
+        if Trabajador.query.first():
+            return
+        
+        # Trabajadores de ejemplo
+        vendedor = Trabajador(nombre='Vendedor Principal', tipo='vendedor')
+        mensajero = Trabajador(nombre='Mensajero 1', tipo='mensajero')
+        elaborador = Trabajador(nombre='Elaborador Principal', tipo='elaborador')
+        inversor1 = Trabajador(nombre='Inversor 1', tipo='inversor')
+        inversor2 = Trabajador(nombre='Inversor 2', tipo='inversor')
+        
+        db.session.add_all([vendedor, mensajero, elaborador, inversor1, inversor2])
+        
+        # Productos de ejemplo
+        producto1 = Producto(
+            nombre='Chocolate Grande',
+            tipo='chocolate',
+            tamaño='grande',
+            precio_venta=1900,
+            costo_produccion=800
+        )
+        producto2 = Producto(
+            nombre='Chocolate Mediano',
+            tipo='chocolate',
+            tamaño='mediano',
+            precio_venta=1200,
+            costo_produccion=500
+        )
+        
+        db.session.add_all([producto1, producto2])
+        db.session.commit()
+        print("✅ Base de datos inicializada con datos de ejemplo")
+        
+    except Exception as e:
+        print(f"❌ Error inicializando base de datos: {e}")
+        db.session.rollback()
+
+# Inicializar cuando se importa el módulo
+with app.app_context():
+    init_db()
+
+if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_ENV') == 'development')
