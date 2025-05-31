@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Chocolates ByB{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4 class="mb-0"><i class="fas fa-chart-line"></i> Dashboard Financiero</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card text-center bg-success text-white">
+                            <div class="card-body">
+                                <h5><i class="fas fa-money-bill-wave"></i></h5>
+                                <p class="mb-0">Pedidos Hoy</p>
+                                <h4 id="pedidos-hoy">{{ pedidos_hoy or 0 }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card text-center bg-primary text-white">
+                            <div class="card-body">
+                                <h5><i class="fas fa-dollar-sign"></i></h5>
+                                <p class="mb-0">Total Facturado Hoy</p>
+                                <h4 id="total-hoy">{{ total_hoy or 0 }} CUP</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card text-center bg-warning text-white">
+                            <div class="card-body">
+                                <h5><i class="fas fa-clock"></i></h5>
+                                <p class="mb-0">Pedidos Pendientes</p>
+                                <h4 id="pedidos-pendientes">{{ pedidos_pendientes or 0 }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-sm-6 mb-3">
+                        <div class="card text-center bg-info text-white">
+                            <div class="card-body">
+                                <h5><i class="fas fa-users"></i></h5>
+                                <p class="mb-0">Trabajadores Activos</p>
+                                <h4 id="trabajadores-activos">{{ trabajadores_activos or 0 }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list-alt"></i> Acciones Rápidas</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('pedidos') }}" class="btn btn-chocolate">
+                        <i class="fas fa-plus"></i> Nuevo Pedido
+                    </a>
+                    <a href="{{ url_for('reporte_diario') }}" class="btn btn-outline-success">
+                        <i class="fab fa-whatsapp"></i> Enviar Reporte Diario
+                    </a>
+                    <a href="{{ url_for('trabajadores') }}" class="btn btn-outline-primary">
+                        <i class="fas fa-user-plus"></i> Gestionar Trabajadores
+                    </a>
+                    <a href="{{ url_for('productos') }}" class="btn btn-outline-warning">
+                        <i class="fas fa-cookie"></i> Gestionar Productos
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-calendar-day"></i> Resumen del Día</h5>
+            </div>
+            <div class="card-body">
+                <div id="resumen-dia">
+                    <p class="text-muted">Cargando información del día...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-exclamation-triangle"></i> Notificaciones</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Sistema Financiero Activo:</strong> 
+                    Las comisiones se calculan automáticamente al completar pedidos.
+                </div>
+                <div class="alert alert-warning">
+                    <i class="fas fa-mobile-alt"></i>
+                    <strong>WhatsApp:</strong> 
+                    Configure la API Key de CallMeBot en las variables de entorno.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Actualizar estadísticas cada 30 segundos
+    setInterval(function() {
+        fetch('/api/estadisticas')
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('pedidos-hoy').textContent = data.pedidos_hoy;
+                document.getElementById('total-hoy').textContent = data.total_hoy + ' CUP';
+                document.getElementById('pedidos-pendientes').textContent = data.pedidos_pendientes;
+                document.getElementById('trabajadores-activos').textContent = data.trabajadores_activos;
+            })
+            .catch(error => console.log('Error actualizando estadísticas:', error));
+    }, 30000);
+});
+</script>
+{% endblock %}
