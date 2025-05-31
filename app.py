@@ -5,23 +5,40 @@ import os
 from urllib.parse import quote_plus
 import requests
 import json
+import logging
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
 # Configuración de base de datos
-if os.environ.get('DATABASE_URL'):
+database_url = os.environ.get('DATABASE_URL')
+if database_url:
     # Para Railway con PostgreSQL
-    database_url = os.environ.get('DATABASE_URL')
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql://', 1)
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    logger.info(f"✅ Usando PostgreSQL: {database_url[:50]}...")
 else:
     # Para desarrollo local con SQLite
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///chocolates_byb.db'
+    logger.info("✅ Usando SQLite local")
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db = SQLAlchemy(app)
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    'pool_pre_ping': True,
+    'pool_recycle': 300,
+}
+
+try:
+    db = SQLAlchemy(app)
+    logger.info("✅ SQLAlchemy inicializado correctamente")
+except Exception as e:
+    logger.error(f"❌ Error inicializando SQLAlchemy: {e}")
+    raise
 
 # Modelos de la base de datos
 class Producto(db.Model):
@@ -508,55 +525,120 @@ def actualizar_configuracion():
 # Ruta de healthcheck para Railway
 @app.route('/health')
 def health_check():
-    return {'status': 'ok', 'app': 'Chocolates ByB'}, 200
+    try:
+        # Verificar conexión a base de datos
+        db.session.execute('SELECT 1')
+        return {'status': 'ok', 'app': 'Chocolates ByB', 'database': 'connected'}, 200
+    except Exception as e:
+        logger.error(f"❌ Healthcheck falló: {e}")
+        return {'status': 'error', 'app': 'Chocolates ByB', 'error': str(e)}, 500
+
+# Test simple sin base de datos
+@app.route('/ping')
+def ping():
+    return {'status': 'pong', 'timestamp': datetime.now().isoformat()}, 200
+
+# Manejo de errores global
+@app.errorhandler(404)
+def not_found(error):
+    return {'error': 'Not found'}, 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Error 500: {error}")
+    return {'error': 'Internal server error'}, 500
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"Excepción no manejada: {e}")
+    return {'error': 'Application error', 'message': str(e)}, 500
 
 # Inicializar base de datos
 def init_db():
     """Inicializa la base de datos con datos de ejemplo"""
     try:
+        logger.info("🔧 Inicializando base de datos...")
+        
+        # Crear todas las tablas
         db.create_all()
+        logger.info("✅ Tablas creadas correctamente")
         
         # Verificar si ya hay datos
         if Trabajador.query.first():
+            logger.info("ℹ️  Base de datos ya tiene datos")
             return
         
-        # Trabajadores de ejemplo
-        vendedor = Trabajador(nombre='Vendedor Principal', tipo='vendedor')
-        mensajero = Trabajador(nombre='Mensajero 1', tipo='mensajero')
-        elaborador = Trabajador(nombre='Elaborador Principal', tipo='elaborador')
-        inversor1 = Trabajador(nombre='Inversor 1', tipo='inversor')
-        inversor2 = Trabajador(nombre='Inversor 2', tipo='inversor')
+        logger.info("📝 Creando datos de ejemplo...")
         
-        db.session.add_all([vendedor, mensajero, elaborador, inversor1, inversor2])
+        # Trabajadores de ejemplo
+        trabajadores = [
+            Trabajador(nombre='Vendedor Principal', tipo='vendedor'),
+            Trabajador(nombre='Mensajero 1', tipo='mensajero'),
+            Trabajador(nombre='Elaborador Principal', tipo='elaborador'),
+            Trabajador(nombre='Inversor 1', tipo='inversor'),
+            Trabajador(nombre='Inversor 2', tipo='inversor')
+        ]
+        
+        for trabajador in trabajadores:
+            db.session.add(trabajador)
         
         # Productos de ejemplo
-        producto1 = Producto(
-            nombre='Chocolate Grande',
-            tipo='chocolate',
-            tamaño='grande',
-            precio_venta=1900,
-            costo_produccion=800
-        )
-        producto2 = Producto(
-            nombre='Chocolate Mediano',
-            tipo='chocolate',
-            tamaño='mediano',
-            precio_venta=1200,
-            costo_produccion=500
-        )
+        productos = [
+            Producto(
+                nombre='Chocolate Grande',
+                tipo='chocolate',
+                tamaño='grande',
+                precio_venta=1900,
+                costo_produccion=800
+            ),
+            Producto(
+                nombre='Chocolate Mediano',
+                tipo='chocolate',
+                tamaño='mediano',
+                precio_venta=1200,
+                costo_produccion=500
+            )
+        ]
         
-        db.session.add_all([producto1, producto2])
+        for producto in productos:
+            db.session.add(producto)
+        
+        # Configuración inicial
+        config = ConfiguracionComisiones()
+        db.session.add(config)
+        
         db.session.commit()
-        print("✅ Base de datos inicializada con datos de ejemplo")
+        logger.info("✅ Datos de ejemplo creados correctamente")
         
     except Exception as e:
-        print(f"❌ Error inicializando base de datos: {e}")
+        logger.error(f"❌ Error inicializando base de datos: {e}")
         db.session.rollback()
+        # No lanzar excepción, permitir que la app continúe
+        
+# Inicializar cuando se carga el módulo
+def setup_app():
+    """Configura la aplicación de manera segura"""
+    try:
+        with app.app_context():
+            init_db()
+    except Exception as e:
+        logger.error(f"❌ Error en setup_app: {e}")
 
-# Inicializar cuando se importa el módulo
-with app.app_context():
-    init_db()
+# Solo inicializar si no estamos importando
+if __name__ != '__main__':
+    setup_app()
 
 if __name__ == '__main__':
+    logger.info("🚀 Iniciando aplicación...")
+    
+    # Configurar la aplicación
+    with app.app_context():
+        init_db()
+    
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=os.environ.get('FLASK_ENV') == 'development')
+    debug_mode = os.environ.get('FLASK_ENV') == 'development'
+    
+    logger.info(f"🌐 Servidor iniciando en puerto {port}")
+    logger.info(f"🔧 Modo debug: {debug_mode}")
+    
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)
