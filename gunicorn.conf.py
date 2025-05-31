@@ -4,24 +4,14 @@ import os
 bind = f"0.0.0.0:{os.environ.get('PORT', 5000)}"
 workers = 1
 worker_class = "sync"
-worker_connections = 1000
-timeout = 300
-keepalive = 2
-max_requests = 1000
-max_requests_jitter = 50
+timeout = 120  # Reducido de 300 a 120
+keepalive = 5
 
 # Logging
 loglevel = "info"
 accesslog = "-"
 errorlog = "-"
-access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s"'
 
 # Proceso
-preload_app = False
+preload_app = False  # Importante: no precargar la app
 daemon = False
-pidfile = None
-tmp_upload_dir = None
-
-# SSL
-keyfile = None
-certfile = None
