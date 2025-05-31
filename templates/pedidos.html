@@ -1,0 +1,285 @@
+{% extends "base.html" %}
+
+{% block title %}Pedidos - Chocolates ByB{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h4 class="mb-0"><i class="fas fa-shopping-cart"></i> Gestión de Pedidos</h4>
+                <button class="btn btn-chocolate" data-bs-toggle="modal" data-bs-target="#nuevoPedidoModal">
+                    <i class="fas fa-plus"></i> Nuevo Pedido
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Cliente</th>
+                                <th>Fecha Entrega</th>
+                                <th>Total</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pedido in pedidos %}
+                            <tr>
+                                <td>{{ pedido.numero_orden }}</td>
+                                <td>{{ pedido.cliente_nombre }}</td>
+                                <td>{{ pedido.fecha_entrega.strftime('%d/%m/%Y') }}</td>
+                                <td>{{ pedido.total }} CUP</td>
+                                <td>
+                                    <span class="badge bg-{{ 'success' if pedido.estado == 'COMPLETADO' else 'warning' if pedido.estado == 'PENDIENTE' else 'danger' }}">
+                                        {{ pedido.estado }}
+                                    </span>
+                                    {% if pedido.modificado %}
+                                        <span class="badge bg-info">MODIFICADO</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if pedido.estado == 'PENDIENTE' %}
+                                        <a href="{{ url_for('completar_pedido', pedido_id=pedido.id) }}" 
+                                           class="btn btn-success btn-sm">
+                                            <i class="fas fa-check"></i> Completar
+                                        </a>
+                                    {% endif %}
+                                    <button class="btn btn-info btn-sm" onclick="verDetalle({{ pedido.id }})">
+                                        <i class="fas fa-eye"></i> Ver
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nuevo Pedido -->
+<div class="modal fade" id="nuevoPedidoModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Nuevo Pedido</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST" action="{{ url_for('crear_pedido') }}">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Cliente *</label>
+                                <input type="text" class="form-control" name="cliente_nombre" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Teléfono</label>
+                                <input type="text" class="form-control" name="cliente_telefono">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Dirección *</label>
+                        <textarea class="form-control" name="cliente_direccion" rows="2" required></textarea>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Fecha de Entrega *</label>
+                                <input type="date" class="form-control" name="fecha_entrega" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Horario de Entrega</label>
+                                <input type="text" class="form-control" name="horario_entrega" placeholder="ej: 2:00 PM - 4:00 PM">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">Vendedor</label>
+                                <select class="form-control" name="vendedor_id">
+                                    <option value="">Seleccionar...</option>
+                                    {% for trabajador in trabajadores %}
+                                        {% if trabajador.tipo == 'vendedor' %}
+                                            <option value="{{ trabajador.id }}">{{ trabajador.nombre }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">Mensajero</label>
+                                <select class="form-control" name="mensajero_id">
+                                    <option value="">Seleccionar...</option>
+                                    {% for trabajador in trabajadores %}
+                                        {% if trabajador.tipo == 'mensajero' %}
+                                            <option value="{{ trabajador.id }}">{{ trabajador.nombre }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="mb-3">
+                                <label class="form-label">Elaborador</label>
+                                <select class="form-control" name="elaborador_id">
+                                    <option value="">Seleccionar...</option>
+                                    {% for trabajador in trabajadores %}
+                                        {% if trabajador.tipo == 'elaborador' %}
+                                            <option value="{{ trabajador.id }}">{{ trabajador.nombre }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Productos</label>
+                        <div id="productos-container">
+                            <div class="row mb-2 producto-item">
+                                <div class="col-md-6">
+                                    <select class="form-control producto-select" name="productos[]">
+                                        <option value="">Seleccionar producto...</option>
+                                        {% for producto in productos %}
+                                            <option value="{{ producto.id }}" data-precio="{{ producto.precio_venta }}">
+                                                {{ producto.nombre }} - {{ producto.precio_venta }} CUP
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <input type="number" class="form-control cantidad-input" name="cantidades[]" 
+                                           placeholder="Cantidad" min="1" value="1">
+                                </div>
+                                <div class="col-md-2">
+                                    <input type="number" class="form-control precio-input" name="precios[]" 
+                                           placeholder="Precio" readonly>
+                                </div>
+                                <div class="col-md-1">
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="eliminarProducto(this)">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="agregarProducto()">
+                            <i class="fas fa-plus"></i> Agregar Producto
+                        </button>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Mensajería (CUP)</label>
+                                <input type="number" class="form-control" name="mensajeria" value="0">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Total Calculado</label>
+                                <input type="text" class="form-control" id="total-calculado" readonly>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label">Observaciones</label>
+                        <textarea class="form-control" name="observaciones" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-chocolate">Crear Pedido</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function agregarProducto() {
+    const container = document.getElementById('productos-container');
+    const newItem = container.querySelector('.producto-item').cloneNode(true);
+    
+    // Limpiar valores
+    newItem.querySelectorAll('input, select').forEach(input => {
+        input.value = '';
+    });
+    
+    container.appendChild(newItem);
+    calcularTotal();
+}
+
+function eliminarProducto(btn) {
+    const container = document.getElementById('productos-container');
+    if (container.children.length > 1) {
+        btn.closest('.producto-item').remove();
+        calcularTotal();
+    }
+}
+
+function calcularTotal() {
+    let total = 0;
+    const mensajeria = parseInt(document.querySelector('[name="mensajeria"]').value) || 0;
+    
+    document.querySelectorAll('.producto-item').forEach(item => {
+        const precio = parseInt(item.querySelector('.precio-input').value) || 0;
+        total += precio;
+    });
+    
+    total += mensajeria;
+    document.getElementById('total-calculado').value = total + ' CUP';
+}
+
+// Event listeners
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('producto-select')) {
+        const option = e.target.selectedOptions[0];
+        const precio = option.dataset.precio || 0;
+        const cantidad = e.target.closest('.producto-item').querySelector('.cantidad-input').value || 1;
+        const precioInput = e.target.closest('.producto-item').querySelector('.precio-input');
+        
+        precioInput.value = precio * cantidad;
+        calcularTotal();
+    }
+    
+    if (e.target.classList.contains('cantidad-input')) {
+        const item = e.target.closest('.producto-item');
+        const select = item.querySelector('.producto-select');
+        const option = select.selectedOptions[0];
+        const precioUnitario = option.dataset.precio || 0;
+        const cantidad = e.target.value || 1;
+        const precioInput = item.querySelector('.precio-input');
+        
+        precioInput.value = precioUnitario * cantidad;
+        calcularTotal();
+    }
+    
+    if (e.target.name === 'mensajeria') {
+        calcularTotal();
+    }
+});
+
+function verDetalle(pedidoId) {
+    // Implementar vista de detalle del pedido
+    alert('Función de detalle en desarrollo');
+}
+</script>
+{% endblock %}
