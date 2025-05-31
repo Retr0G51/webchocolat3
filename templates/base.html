@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Chocolates ByB{% endblock %}</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .navbar-brand {
+            font-weight: bold;
+            color: #8B4513 !important;
+        }
+        .btn-chocolate {
+            background-color: #8B4513;
+            border-color: #8B4513;
+            color: white;
+        }
+        .btn-chocolate:hover {
+            background-color: #A0522D;
+            border-color: #A0522D;
+            color: white;
+        }
+        .card-header {
+            background-color: #8B4513;
+            color: white;
+        }
+        .navbar {
+            background-color: #F5DEB3 !important;
+        }
+        .table-striped > tbody > tr:nth-of-type(odd) > td {
+            background-color: #FFF8DC;
+        }
+        @media (max-width: 768px) {
+            .container-fluid {
+                padding: 0.5rem;
+            }
+            .card {
+                margin-bottom: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-light">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="{{ url_for('index') }}">
+                <i class="fas fa-cookie-bite"></i> Chocolates ByB
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('index') }}">
+                            <i class="fas fa-home"></i> Inicio
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('pedidos') }}">
+                            <i class="fas fa-shopping-cart"></i> Pedidos
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('trabajadores') }}">
+                            <i class="fas fa-users"></i> Trabajadores
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('productos') }}">
+                            <i class="fas fa-cookie"></i> Productos
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('configuracion') }}">
+                            <i class="fas fa-cog"></i> Configuración
+                        </a>
+                    </li>
+                </ul>
+                <a href="{{ url_for('reporte_diario') }}" class="btn btn-chocolate btn-sm">
+                    <i class="fab fa-whatsapp"></i> Reporte Diario
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'success' if category == 'success' else 'warning' if category == 'warning' else 'danger' }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>
