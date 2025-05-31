@@ -277,12 +277,113 @@ def generar_reporte_diario():
 # Rutas
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # Obtener estadísticas para el dashboard
+    pedidos_hoy = Pedido.query.filter(
+        Pedido.fecha_pedido == date.today(),
+        Pedido.estado == 'COMPLETADO'
+    ).count()
+    
+    total_hoy = sum(p.total for p in Pedido.query.filter(
+        Pedido.fecha_pedido == date.today(),
+        Pedido.estado == 'COMPLETADO'
+    ).all()) or 0
+    
+    pedidos_pendientes = Pedido.query.filter_by(estado='PENDIENTE').count()
+    trabajadores_activos = Trabajador.query.filter_by(activo=True).count()
+    
+    return render_template('index.html',
+                         pedidos_hoy=pedidos_hoy,
+                         total_hoy=total_hoy,
+                         pedidos_pendientes=pedidos_pendientes,
+                         trabajadores_activos=trabajadores_activos)
+
+@app.route('/api/estadisticas')
+def api_estadisticas():
+    pedidos_hoy = Pedido.query.filter(
+        Pedido.fecha_pedido == date.today(),
+        Pedido.estado == 'COMPLETADO'
+    ).count()
+    
+    total_hoy = sum(p.total for p in Pedido.query.filter(
+        Pedido.fecha_pedido == date.today(),
+        Pedido.estado == 'COMPLETADO'
+    ).all()) or 0
+    
+    pedidos_pendientes = Pedido.query.filter_by(estado='PENDIENTE').count()
+    trabajadores_activos = Trabajador.query.filter_by(activo=True).count()
+    
+    return jsonify({
+        'pedidos_hoy': pedidos_hoy,
+        'total_hoy': total_hoy,
+        'pedidos_pendientes': pedidos_pendientes,
+        'trabajadores_activos': trabajadores_activos
+    })
 
 @app.route('/pedidos')
 def pedidos():
     pedidos = Pedido.query.order_by(Pedido.numero_orden.desc()).all()
-    return render_template('pedidos.html', pedidos=pedidos)
+    trabajadores = Trabajador.query.filter_by(activo=True).all()
+    productos = Producto.query.filter_by(activo=True).all()
+    return render_template('pedidos.html', pedidos=pedidos, trabajadores=trabajadores, productos=productos)
+
+@app.route('/crear_pedido', methods=['POST'])
+def crear_pedido():
+    try:
+        # Obtener el siguiente número de orden
+        ultimo_pedido = Pedido.query.order_by(Pedido.numero_orden.desc()).first()
+        numero_orden = (ultimo_pedido.numero_orden + 1) if ultimo_pedido else 1
+        
+        # Crear el pedido
+        pedido = Pedido(
+            numero_orden=numero_orden,
+            fecha_entrega=datetime.strptime(request.form['fecha_entrega'], '%Y-%m-%d').date(),
+            horario_entrega=request.form.get('horario_entrega'),
+            cliente_nombre=request.form['cliente_nombre'],
+            cliente_telefono=request.form.get('cliente_telefono'),
+            cliente_direccion=request.form['cliente_direccion'],
+            vendedor_id=request.form.get('vendedor_id') or None,
+            mensajero_id=request.form.get('mensajero_id') or None,
+            elaborador_id=request.form.get('elaborador_id') or None,
+            mensajeria=int(request.form.get('mensajeria', 0)),
+            observaciones=request.form.get('observaciones'),
+            subtotal=0,
+            total=0
+        )
+        
+        db.session.add(pedido)
+        db.session.flush()  # Para obtener el ID
+        
+        # Procesar productos
+        productos_ids = request.form.getlist('productos[]')
+        cantidades = request.form.getlist('cantidades[]')
+        precios = request.form.getlist('precios[]')
+        
+        subtotal = 0
+        for i, producto_id in enumerate(productos_ids):
+            if producto_id:
+                cantidad = int(cantidades[i]) if cantidades[i] else 1
+                precio_unitario = int(precios[i]) if precios[i] else 0
+                
+                item = ItemPedido(
+                    pedido_id=pedido.id,
+                    producto_id=int(producto_id),
+                    cantidad=cantidad,
+                    precio_unitario=precio_unitario // cantidad
+                )
+                db.session.add(item)
+                subtotal += precio_unitario
+        
+        pedido.subtotal = subtotal
+        pedido.total = subtotal + pedido.mensajeria
+        
+        db.session.commit()
+        flash('Pedido creado exitosamente', 'success')
+        
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error al crear pedido: {str(e)}', 'error')
+    
+    return redirect(url_for('pedidos'))
 
 @app.route('/completar_pedido/<int:pedido_id>')
 def completar_pedido(pedido_id):
@@ -323,10 +424,47 @@ def trabajadores():
     trabajadores = Trabajador.query.filter_by(activo=True).all()
     return render_template('trabajadores.html', trabajadores=trabajadores)
 
+@app.route('/crear_trabajador', methods=['POST'])
+def crear_trabajador():
+    try:
+        trabajador = Trabajador(
+            nombre=request.form['nombre'],
+            tipo=request.form['tipo'],
+            telefono=request.form.get('telefono')
+        )
+        db.session.add(trabajador)
+        db.session.commit()
+        flash('Trabajador creado exitosamente', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error al crear trabajador: {str(e)}', 'error')
+    
+    return redirect(url_for('trabajadores'))
+
 @app.route('/productos')
 def productos():
     productos = Producto.query.filter_by(activo=True).all()
     return render_template('productos.html', productos=productos)
+
+@app.route('/crear_producto', methods=['POST'])
+def crear_producto():
+    try:
+        producto = Producto(
+            nombre=request.form['nombre'],
+            tipo=request.form['tipo'],
+            tamaño=request.form.get('tamaño'),
+            precio_venta=int(request.form['precio_venta']),
+            costo_produccion=int(request.form['costo_produccion']),
+            stock=int(request.form.get('stock', 0))
+        )
+        db.session.add(producto)
+        db.session.commit()
+        flash('Producto creado exitosamente', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error al crear producto: {str(e)}', 'error')
+    
+    return redirect(url_for('productos'))
 
 @app.route('/configuracion')
 def configuracion():
@@ -336,6 +474,27 @@ def configuracion():
         db.session.add(config)
         db.session.commit()
     return render_template('configuracion.html', config=config)
+
+@app.route('/actualizar_configuracion', methods=['POST'])
+def actualizar_configuracion():
+    try:
+        config = ConfiguracionComisiones.query.first()
+        if not config:
+            config = ConfiguracionComisiones()
+        
+        config.comision_vendedor = int(request.form['comision_vendedor'])
+        config.ganancia_negocio = int(request.form['ganancia_negocio'])
+        config.ganancia_inversores = int(request.form['ganancia_inversores'])
+        config.precio_bolsa_regalo = int(request.form['precio_bolsa_regalo'])
+        
+        db.session.add(config)
+        db.session.commit()
+        flash('Configuración actualizada exitosamente', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error al actualizar configuración: {str(e)}', 'error')
+    
+    return redirect(url_for('configuracion'))
 
 if __name__ == '__main__':
     with app.app_context():
